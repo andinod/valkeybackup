@@ -17,8 +17,8 @@ RUN curl -LO "https://dl.k8s.io/$(cat stable.txt)/bin/linux/amd64/kubectl"
 RUN chmod +x kubectl
 RUN mv kubectl /usr/local/bin/
 
-COPY backup/env_vars.env /backup
-COPY backup/backup.bash /backup/backup.bash
+COPY env_vars.env /backup
+COPY backup.bash /backup/backup.bash
 
 # Adding default certificates
 RUN update-ca-certificates
