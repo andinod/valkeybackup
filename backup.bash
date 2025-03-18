@@ -128,6 +128,84 @@ perform_redis_backup() {
 
 }
 
+show_available_backups() {
+	restic -r "$RESTIC_REPOSITORY" snapshots
+}
+
+restore_last() {
+	export SNAPSHOT_ID=$(restic -r "$RESTIC_REPOSITORY" snapshots --json --tag "${VALKEY_NAME}" | jq -r 'max_by(.time) | .id')
+	restore_snapshot
+}
+
+restore_snapshot() {
+
+	if [ ! -z ${SNAPSHOT_ID} ];
+	then
+	        set -e
+		# Procedure taken from: https://artifacthub.io/packages/helm/bitnami/valkey
+
+		echo "Saving the current valkey yaml manifest applied to the instance"
+		kubectl apply view-last-applied valkey ${VALKEY_NAME} -n ${VALKEY_NAMESPACE} -o yaml > ${VALKEY_NAME}.yaml
+
+		echo "Deleting the instance ${VALKEY_NAME} for the restore"
+		kubectl delete ${VALKEY_NAME} -n ${VALKEY_NAMESPACE}
+
+		echo "Creating the pod to mount the volume of the node"
+		kubectl run --generator=run-pod/v1 -i --rm --tty volpod -n ${VALKEY_NAMESPACE} --overrides='
+		{
+		    "apiVersion": "v1",
+		    "kind": "Pod",
+		    "metadata": {
+		        "name": "valkeyvolpod"
+		    },
+		    "spec": {
+		        "containers": [{
+		           "command": [
+		                "tail",
+		                "-f",
+		                "/dev/null"
+		           ],
+		           "image": "bitnami/os-shell",
+		           "name": "mycontainer",
+		           "volumeMounts": [{
+		               "mountPath": "/mnt",
+		               "name": "valkeydata"
+		            }]
+		        }],
+		        "restartPolicy": "Never",
+		        "volumes": [{
+		            "name": "valkeydata",
+		            "persistentVolumeClaim": {
+		                "claimName": "valkey-data-'${VALKEY_NAME}'-primary-0"
+		            }
+		        }]
+		    }
+		}' --image="bitnami/os-shell"	
+
+
+	        # Perform the restore
+	        echo "INFO: Restoring Valkey backup for pod ${REDIS_NAME} from snapshot ID ${SNAPSHOT_ID}"
+	        restic -r "$RESTIC_REPOSITORY" restore "${SNAPSHOT_ID}" --target "/"
+	
+	        # Move the restored file to the correct location
+		echo "Copying the restored data to valkey volume"
+	        kubectl cp "/tmp/${VALKEY_NAME}.rdb" valkeyvolpod:/mnt/dump.rdb -n ${VALKEY_NAMESPACE}
+
+		echo "Deleting the restore pod"
+		kubectl delete pod volpod -n ${VALKEY_NAMESPACE}
+
+		echo "Restarting the valkey instance ${VALKEY_NAME}"
+		kubectl apply -f ${VALKEY_NAME}.yaml -n ${VALKEY_NAMESPACE}
+	
+	        # Change the ownership of the restored file
+	        # chown redis:redis "${DATA_DIR}/dump.rdb"
+	
+	        echo "Restore completed successfully for instance ${VALKEY_NAME}"
+	        set +e
+	fi
+
+}
+
 #
 #
 #
@@ -136,7 +214,27 @@ perform_redis_backup() {
 #
 #
 
-initialize_repository
-echo "INFO: Valkey type set: ${VALKEY_TYPE}"
-discover_master
-perform_redis_backup 
+if [[ "${RESTORE}" == "true" ]]; 
+then
+	case $RESTORE_OPERATION in
+		"show_available_backups")
+			show_available_backups
+			;;
+		"restore_last")
+			restore_last
+			;;
+		"restore_snapshot")
+			restore_snapshot 
+			;;
+		*)
+			echo "Error: Restore option ( $RESTORE_OPERATION ) not valid"  >&2
+			exit 1
+			;;
+	esac
+
+else
+	initialize_repository
+	echo "INFO: Valkey type set: ${VALKEY_TYPE}"
+	discover_master
+	perform_redis_backup 
+fi
