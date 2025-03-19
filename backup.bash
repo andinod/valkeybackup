@@ -161,7 +161,7 @@ restore_snapshot() {
 		    "apiVersion": "v1",
 		    "kind": "Pod",
 		    "metadata": {
-		        "name": "valkeyvolpod"
+		        "name": "restore-'${VALKEY_NAME}'-volpod"
 		    },
 		    "spec": {
 		        "containers": [{
@@ -194,10 +194,10 @@ restore_snapshot() {
 	
 	        # Move the restored file to the correct location
 		echo "Copying the restored data to valkey volume"
-	        kubectl cp "/tmp/${VALKEY_NAME}.rdb" valkeyvolpod:/mnt/dump.rdb -n ${VALKEY_NAMESPACE}
+	        kubectl cp "/tmp/${VALKEY_NAME}.rdb" restore-${VALKEY_NAME}-volpod:/mnt/dump.rdb -n ${VALKEY_NAMESPACE}
 
 		echo "Deleting the restore pod"
-		kubectl delete pod valkeyvolpod -n ${VALKEY_NAMESPACE}
+		kubectl delete pod restore-${VALKEY_NAME}-volpod -n ${VALKEY_NAMESPACE}
 
 		echo "Restarting the valkey instance ${VALKEY_NAME}"
 		kubectl apply -f ${VALKEY_NAME}.yaml -n ${VALKEY_NAMESPACE}
