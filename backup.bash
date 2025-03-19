@@ -188,6 +188,9 @@ restore_snapshot() {
 		}' --image="bitnami/os-shell"	
 
 
+		echo "Waiting for the container to be ready"
+		kubectl wait --for=condition=ready pod/restore-${VALKEY_NAME}-volpod -n ${VALKEY_NAMESPACE}
+
 	        # Perform the restore
 	        echo "INFO: Restoring Valkey backup for pod ${REDIS_NAME} from snapshot ID ${SNAPSHOT_ID}"
 	        restic -r "$RESTIC_REPOSITORY" restore "${SNAPSHOT_ID}" --target "/"
@@ -199,14 +202,11 @@ restore_snapshot() {
 			echo
 			echo "Files in /tmp"
 			ls -l /tmp
-
-			tail -f /dev/null
-
 		fi
 					
 	        # Move the restored file to the correct location
 		echo "Copying the restored data to valkey volume"
-	        kubectl cp "/tmp/${VALKEY_NAME}.rdb" restore-${VALKEY_NAME}-volpod:/mnt/dump.rdb -n ${VALKEY_NAMESPACE} -c mycontainer
+	        kubectl cp "/tmp/${VALKEY_NAME}.rdb" restore-${VALKEY_NAME}-volpod:/mnt/dump.rdb -n ${VALKEY_NAMESPACE}
 
 		echo "Deleting the restore pod"
 		kubectl delete pod restore-${VALKEY_NAME}-volpod -n ${VALKEY_NAMESPACE}
