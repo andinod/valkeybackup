@@ -129,11 +129,14 @@ perform_redis_backup() {
 }
 
 show_available_backups() {
+	echo "Show list of available backups"
+	echo
 	restic -r "$RESTIC_REPOSITORY" snapshots
 }
 
 restore_last() {
 	export SNAPSHOT_ID=$(restic -r "$RESTIC_REPOSITORY" snapshots --json --tag "${VALKEY_NAME}" | jq -r 'max_by(.time) | .id')
+	echo "Restore the from the last snapshot"
 	restore_snapshot
 }
 
@@ -143,12 +146,14 @@ restore_snapshot() {
 	then
 	        set -e
 		# Procedure taken from: https://artifacthub.io/packages/helm/bitnami/valkey
+		echo "Proceeding with the restore of the data from the snapshot: ${SNAPSHOT_ID}"
+		echo
 
 		echo "Saving the current valkey yaml manifest applied to the instance"
 		kubectl apply view-last-applied valkey ${VALKEY_NAME} -n ${VALKEY_NAMESPACE} -o yaml > ${VALKEY_NAME}.yaml
 
 		echo "Deleting the instance ${VALKEY_NAME} for the restore"
-		kubectl delete ${VALKEY_NAME} -n ${VALKEY_NAMESPACE}
+		kubectl delete valkey ${VALKEY_NAME} -n ${VALKEY_NAMESPACE}
 
 		echo "Creating the pod to mount the volume of the node"
 		kubectl run --generator=run-pod/v1 -i --rm --tty volpod -n ${VALKEY_NAMESPACE} --overrides='
