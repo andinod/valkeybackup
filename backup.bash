@@ -192,6 +192,16 @@ restore_snapshot() {
 	        echo "INFO: Restoring Valkey backup for pod ${REDIS_NAME} from snapshot ID ${SNAPSHOT_ID}"
 	        restic -r "$RESTIC_REPOSITORY" restore "${SNAPSHOT_ID}" --target "/"
 	
+ 		if [[ "${DEBUG_IMAGE}" == "true" ]];
+		then
+			echo "Files local"
+			ls -l
+			echo
+			echo "Files in /tmp"
+			ls -l /tmp
+
+		fi
+					
 	        # Move the restored file to the correct location
 		echo "Copying the restored data to valkey volume"
 	        kubectl cp "/tmp/${VALKEY_NAME}.rdb" restore-${VALKEY_NAME}-volpod:/mnt/dump.rdb -n ${VALKEY_NAMESPACE}
