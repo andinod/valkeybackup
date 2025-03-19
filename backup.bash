@@ -189,7 +189,7 @@ restore_snapshot() {
 
 
 		echo "Waiting for the container to be ready"
-		kubectl wait --for=condition=ready pod/restore-${VALKEY_NAME}-volpod -n ${VALKEY_NAMESPACE}
+		kubectl wait --for=jsonpath='{.status.phase}'=Running pod/restore-${VALKEY_NAME}-volpod -n ${VALKEY_NAMESPACE}
 
 	        # Perform the restore
 	        echo "INFO: Restoring Valkey backup for pod ${REDIS_NAME} from snapshot ID ${SNAPSHOT_ID}"
