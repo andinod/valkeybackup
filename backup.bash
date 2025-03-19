@@ -200,6 +200,8 @@ restore_snapshot() {
 			echo "Files in /tmp"
 			ls -l /tmp
 
+			tail -f /dev/null
+
 		fi
 					
 	        # Move the restored file to the correct location
