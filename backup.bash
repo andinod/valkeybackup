@@ -156,7 +156,7 @@ restore_snapshot() {
 		kubectl delete valkey ${VALKEY_NAME} -n ${VALKEY_NAMESPACE}
 
 		echo "Creating the pod to mount the volume of the node"
-		kubectl run --generator=run-pod/v1 -i --rm --tty volpod -n ${VALKEY_NAMESPACE} --overrides='
+		kubectl run volpod -n ${VALKEY_NAMESPACE} --overrides='
 		{
 		    "apiVersion": "v1",
 		    "kind": "Pod",
@@ -197,7 +197,7 @@ restore_snapshot() {
 	        kubectl cp "/tmp/${VALKEY_NAME}.rdb" valkeyvolpod:/mnt/dump.rdb -n ${VALKEY_NAMESPACE}
 
 		echo "Deleting the restore pod"
-		kubectl delete pod volpod -n ${VALKEY_NAMESPACE}
+		kubectl delete pod valkeyvolpod -n ${VALKEY_NAMESPACE}
 
 		echo "Restarting the valkey instance ${VALKEY_NAME}"
 		kubectl apply -f ${VALKEY_NAME}.yaml -n ${VALKEY_NAMESPACE}
