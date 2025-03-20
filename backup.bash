@@ -182,6 +182,7 @@ restore_snapshot() {
 
 		echo "Copying the restored data to valkey volume"
 	        kubectl cp "/tmp/${VALKEY_NAME}.rdb" restore-${VALKEY_NAME}-volpod:/mnt/dump.rdb -n ${VALKEY_NAMESPACE}
+		kubectl exec restore-${VALKEY_NAME}-volpod -n ${VALKEY_NAMESPACE} --tty=false -- /bin/sh -c "chmod 1001:1001 /mnt/*.rdb"
 
 		echo "Deleting the restore pod"
 		kubectl delete pod restore-${VALKEY_NAME}-volpod -n ${VALKEY_NAMESPACE}
