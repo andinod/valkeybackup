@@ -156,37 +156,8 @@ restore_snapshot() {
 		kubectl delete valkey ${VALKEY_NAME} -n ${VALKEY_NAMESPACE}
 
 		echo "Creating the pod to mount the volume of the node"
-		kubectl run volpod -n ${VALKEY_NAMESPACE} --overrides='
-		{
-		    "apiVersion": "v1",
-		    "kind": "Pod",
-		    "metadata": {
-		        "name": "restore-'${VALKEY_NAME}'-volpod"
-		    },
-		    "spec": {
-		        "containers": [{
-		           "command": [
-		                "tail",
-		                "-f",
-		                "/dev/null"
-		           ],
-		           "image": "bitnami/os-shell",
-		           "name": "mycontainer",
-		           "volumeMounts": [{
-		               "mountPath": "/mnt",
-		               "name": "valkeydata"
-		            }]
-		        }],
-		        "restartPolicy": "Never",
-		        "volumes": [{
-		            "name": "valkeydata",
-		            "persistentVolumeClaim": {
-		                "claimName": "valkey-data-'${VALKEY_NAME}'-primary-0"
-		            }
-		        }]
-		    }
-		}' --image="bitnami/os-shell"	
-
+		cat lightweight-tty-pod.yaml | envsubst > restore-${VALKEY_NAME}-volpod.yaml
+		kubectl	apply -f restore-${VALKEY_NAME}-volpod.yaml -n ${VALKEY_NAMESPACE}
 
 		echo "Waiting for the container to be ready"
 		kubectl wait --for=jsonpath='{.status.phase}'=Running pod/restore-${VALKEY_NAME}-volpod -n ${VALKEY_NAMESPACE}

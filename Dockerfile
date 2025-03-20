@@ -19,6 +19,7 @@ RUN mv kubectl /usr/local/bin/
 
 COPY env_vars.env /backup
 COPY backup.bash /backup/backup.bash
+COPY lightweight-tty-pod.yaml /backup/lightweight-tty-pod.yaml
 
 # Adding default certificates
 RUN update-ca-certificates
