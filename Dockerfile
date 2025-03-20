@@ -7,6 +7,7 @@ RUN apt-get update && \
     apt-get install -y curl vim unzip jq && \
     apt-get install -y restic && \
     apt-get install -y redis-tools && \
+    apt-get install -y gettext && \
     apt-get install -y ca-certificates
 
 WORKDIR /backup
