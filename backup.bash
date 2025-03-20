@@ -178,11 +178,10 @@ restore_snapshot() {
 	        # Move the restored file to the correct location
 		# taken from https://docs.simplebackups.com/database-backup/f43rJaVYoNkbCGWqr3j9Jb/restore-a-redis-backup/aGGDek7aMmxgNSdEwUpUUi
 		echo "Deleting old data present"
-		kubectl exec -it restore-${VALKEY_NAME}-volpod -n ${VALKEY_NAMESPACE} -- rm -f /mnt/appendonlydir/* /mnt/*.rdb
+		kubectl exec restore-${VALKEY_NAME}-volpod -n ${VALKEY_NAMESPACE} --tty=false -- /bin/sh -c "rm -f /mnt/appendonlydir/* /mnt/*.rdb"
 
 		echo "Copying the restored data to valkey volume"
 	        kubectl cp "/tmp/${VALKEY_NAME}.rdb" restore-${VALKEY_NAME}-volpod:/mnt/dump.rdb -n ${VALKEY_NAMESPACE}
-	        kubectl exec -it restore-${VALKEY_NAME}-volpod -n ${VALKEY_NAMESPACE} -- rm -f /mnt/appendonlydir/*
 
 		echo "Deleting the restore pod"
 		kubectl delete pod restore-${VALKEY_NAME}-volpod -n ${VALKEY_NAMESPACE}
