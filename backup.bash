@@ -182,16 +182,70 @@ restore_snapshot() {
 
 		echo "Copying the restored data to valkey volume"
 	        kubectl cp "/tmp/${VALKEY_NAME}.rdb" restore-${VALKEY_NAME}-volpod:/mnt/dump.rdb -n ${VALKEY_NAMESPACE}
+	        echo "Change the ownership of the restored file"
 		kubectl exec restore-${VALKEY_NAME}-volpod -n ${VALKEY_NAMESPACE} --tty=false -- /bin/sh -c "chown 1001:1001 /mnt/dump.rdb"
 
 		echo "Deleting the restore pod"
 		kubectl delete pod restore-${VALKEY_NAME}-volpod -n ${VALKEY_NAMESPACE}
 
-		echo "Restarting the valkey instance ${VALKEY_NAME}"
+		# Before valkey is one more time restored, it is necessary to check what is the current configuration of the appendonly
+		# If the appendonly parameter is set to no, then it can be just run the normal deployment saved.
+		# if the appendonly is set to yes there are to ways to verify that:
+		# - the commonConfiguration is not set in the yaml.
+		#    * Then this means that it is taken from the default configuration of the deployment.
+		# - else it is important to check if the appendonly parameter is present and then change it.
+		# For all this steps if the appendonly is set to yes, it will be necessary to change it to no.
+		# Then we will apply the yaml with the restore
+		# When this is running, through the redis-cli we connect and change it to yes to reconestruct the aof files.
+		# finally we will apply the original file with the appendonly yes so it can be fully restored with the paramenter set.
+
+		set +e
+		# Checking if it is configured valkey with appendonly yes
+		# In other words if the appendonly is NOT set to no
+		if ! redis-cli -h ${VALKEY_MASTER} -p ${VALKEY_PORT} $opts config get appendonly | tail -n 1 | grep no 1 > /dev/null;
+		then
+			# making copy of the original file to add new parameters
+
+			cp ${VALKEY_NAME}.yaml ${VALKEY_NAME}-mod.yaml
+
+			# if appendonly is set to yes check if this is set through the commonConfiguration
+                	if grep commonConfiguration ${VALKEY_NAME}.yaml 1>/dev/null;
+			then
+				if grep appendonly ${VALKEY_NAME}.yaml 1>/dev/null;
+				then
+					echo "Found the appendonly definition in the deployment definition"
+					echo "Changing the appendonly value to no"
+					sed -i 's/appendonly yes/appendonly no/' ${VALKEY_NAME}-mod.yaml 
+				fi
+			else
+				echo "No custom configuration found, adding custom configuration with appendonly no"
+				echo "  commonConfiguration: |-" >> ${VALKEY_NAME}-mod.yaml
+                                echo "    # Enable AOF https://valkey.io/topics/persistence#append-only-file" >> ${VALKEY_NAME}-mod.yaml
+                                echo "    appendonly no" >> ${VALKEY_NAME}-mod.yaml
+                                echo "    # Disable RDB persistence, AOF persistence already enabled." >> ${VALKEY_NAME}-mod.yaml
+                                echo "    save \"\"" >> ${VALKEY_NAME}-mod.yaml
+			fi
+
+			echo "After modification deploy the instance with appendonly no"
+			kubectl apply -f ${VALKEY_NAME}-mod.yaml -n ${VALKEY_NAMESPACE}
+
+			echo "Waiting for the container to be ready"
+			kubectl wait --for=condition=ContainersReady pods -n ${VALKEY_NAMESPACE} -l app.kubernetes.io/instance=${VALKEY_NAME}
+
+			echo "Sleep for 5 secs"
+			sleep 5
+
+			echo "Activate the appendonly to yes to reconstruct the aof files"
+			redis-cli -h ${VALKEY_MASTER} -p ${VALKEY_PORT} $opts config set appendonly yes
+
+			echo "Sleep for 10 secs"
+			sleep 10
+
+		fi
+                set -e
+
+		echo "Restoring the valkey instance ${VALKEY_NAME} with the original configuration"
 		kubectl apply -f ${VALKEY_NAME}.yaml -n ${VALKEY_NAMESPACE}
-	
-	        # Change the ownership of the restored file
-	        # chown redis:redis "${DATA_DIR}/dump.rdb"
 	
 	        echo "Restore completed successfully for instance ${VALKEY_NAME}"
 	        set +e
@@ -209,6 +263,10 @@ restore_snapshot() {
 
 if [[ "${RESTORE}" == "true" ]]; 
 then
+	echo "INFO: Restore of ${VALKEY_NAME}"
+
+	discover_master
+
 	case $RESTORE_OPERATION in
 		"show_available_backups")
 			show_available_backups
