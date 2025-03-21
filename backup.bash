@@ -251,11 +251,14 @@ restore_snapshot() {
 			echo "After modification deploy the instance with appendonly no"
 			kubectl apply -f ${VALKEY_NAME}-mod.yaml -n ${VALKEY_NAMESPACE}
 
+			echo "Sleep for 10 secs"
+                        sleep 10
+
 			echo "Waiting for the container to be ready"
 			kubectl wait --for=condition=ContainersReady pods -n ${VALKEY_NAMESPACE} -l app.kubernetes.io/instance=${VALKEY_NAME}
 
-			echo "Sleep for 5 secs"
-			sleep 5
+			echo "Sleep for 10 secs"
+			sleep 10
 
 			echo "Activate the appendonly to yes to reconstruct the aof files"
 			redis-cli -h ${VALKEY_MASTER} -p ${VALKEY_PORT} $opts config set appendonly yes
