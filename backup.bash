@@ -260,6 +260,9 @@ restore_snapshot() {
 			echo "Sleep for 10 secs"
 			sleep 10
 
+			echo "Detecting the new master node due to the redeployment changed the CLUSTER_IP"
+			discover_master
+
 			echo "Activate the appendonly to yes to reconstruct the aof files"
 			redis-cli -h ${VALKEY_MASTER} -p ${VALKEY_PORT} $opts config set appendonly yes
 			redis-cli -h ${VALKEY_MASTER} -p ${VALKEY_PORT} $opts config rewrite
