@@ -152,6 +152,50 @@ restore_snapshot() {
 		echo "Saving the current valkey yaml manifest applied to the instance"
 		kubectl apply view-last-applied valkey ${VALKEY_NAME} -n ${VALKEY_NAMESPACE} -o yaml > ${VALKEY_NAME}.yaml
 
+	        # Before valkey is one more time restored, it is necessary to check what is the current configuration of the appendonly
+                # If the appendonly parameter is set to no, then it can be just run the normal deployment saved.
+                # if the appendonly is set to yes there are to ways to verify that:
+                # - the commonConfiguration is not set in the yaml.
+                #    * Then this means that it is taken from the default configuration of the deployment.
+                # - else it is important to check if the appendonly parameter is present and then change it.
+                # For all this steps if the appendonly is set to yes, it will be necessary to change it to no.
+                # Then we will apply the yaml with the restore
+                # When this is running, through the redis-cli we connect and change it to yes to reconestruct the aof files.
+                # finally we will apply the original file with the appendonly yes so it can be fully restored with the paramenter set.
+
+	        set +e
+                # Checking if it is configured valkey with appendonly yes
+                # In other words if the appendonly is NOT set to no
+		aof_found=0
+                if ! redis-cli -h ${VALKEY_MASTER} -p ${VALKEY_PORT} $opts config get appendonly | tail -n 1 | grep no 1>/dev/null;
+                then
+                        # making copy of the original file to add new parameters
+
+                        echo "Creating a copy of the deployment file"
+                        cp ${VALKEY_NAME}.yaml ${VALKEY_NAME}-mod.yaml
+
+                        # if appendonly is set to yes check if this is set through the commonConfiguration
+                        if grep commonConfiguration ${VALKEY_NAME}.yaml 1>/dev/null;
+                        then
+                                if grep appendonly ${VALKEY_NAME}.yaml 1>/dev/null;
+                                then
+                                        echo "Found the appendonly definition in the deployment definition"
+                                        echo "Changing the appendonly value to no"
+                                        sed -i 's/appendonly yes/appendonly no/' ${VALKEY_NAME}-mod.yaml
+                                fi
+                        else
+                                echo "No custom configuration found, adding custom configuration with appendonly no"
+                                echo "  commonConfiguration: |-" >> ${VALKEY_NAME}-mod.yaml
+                                echo "    # Enable AOF https://valkey.io/topics/persistence#append-only-file" >> ${VALKEY_NAME}-mod.yaml
+                                echo "    appendonly no" >> ${VALKEY_NAME}-mod.yaml
+                                echo "    # Disable RDB persistence, AOF persistence already enabled." >> ${VALKEY_NAME}-mod.yaml
+                                echo "    save \"\"" >> ${VALKEY_NAME}-mod.yaml
+                        fi
+
+			aof_found=1
+		fi
+		set -e
+
 		echo "Deleting the instance ${VALKEY_NAME} for the restore"
 		kubectl delete valkey ${VALKEY_NAME} -n ${VALKEY_NAMESPACE}
 
@@ -202,30 +246,8 @@ restore_snapshot() {
 		set +e
 		# Checking if it is configured valkey with appendonly yes
 		# In other words if the appendonly is NOT set to no
-		if ! redis-cli -h ${VALKEY_MASTER} -p ${VALKEY_PORT} $opts config get appendonly | tail -n 1 | grep no 1>/dev/null;
+		if (( $aof_found == 1 ));
 		then
-			# making copy of the original file to add new parameters
-
-			cp ${VALKEY_NAME}.yaml ${VALKEY_NAME}-mod.yaml
-
-			# if appendonly is set to yes check if this is set through the commonConfiguration
-                	if grep commonConfiguration ${VALKEY_NAME}.yaml 1>/dev/null;
-			then
-				if grep appendonly ${VALKEY_NAME}.yaml 1>/dev/null;
-				then
-					echo "Found the appendonly definition in the deployment definition"
-					echo "Changing the appendonly value to no"
-					sed -i 's/appendonly yes/appendonly no/' ${VALKEY_NAME}-mod.yaml 
-				fi
-			else
-				echo "No custom configuration found, adding custom configuration with appendonly no"
-				echo "  commonConfiguration: |-" >> ${VALKEY_NAME}-mod.yaml
-                                echo "    # Enable AOF https://valkey.io/topics/persistence#append-only-file" >> ${VALKEY_NAME}-mod.yaml
-                                echo "    appendonly no" >> ${VALKEY_NAME}-mod.yaml
-                                echo "    # Disable RDB persistence, AOF persistence already enabled." >> ${VALKEY_NAME}-mod.yaml
-                                echo "    save \"\"" >> ${VALKEY_NAME}-mod.yaml
-			fi
-
 			echo "After modification deploy the instance with appendonly no"
 			kubectl apply -f ${VALKEY_NAME}-mod.yaml -n ${VALKEY_NAMESPACE}
 
@@ -241,7 +263,6 @@ restore_snapshot() {
 
 			echo "Sleep for 10 secs"
 			sleep 10
-
 		fi
                 set -e
 
