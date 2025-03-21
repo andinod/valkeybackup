@@ -8,7 +8,7 @@ source $SCRIPTDIR/env_vars.env
 
 if [[ "${DEBUG_IMAGE}" == "true" ]];
 then
-	# show all the environment variables
+	echo "DEBUG: Show all the environment variables"
 	export 
 fi
 
@@ -129,14 +129,14 @@ perform_redis_backup() {
 }
 
 show_available_backups() {
-	echo "Show list of available backups"
+	echo "INFO: Show list of available backups"
 	echo
 	restic -r "$RESTIC_REPOSITORY" snapshots
 }
 
 restore_last() {
 	export SNAPSHOT_ID=$(restic -r "$RESTIC_REPOSITORY" snapshots --json --tag "${VALKEY_NAME}" | jq -r 'max_by(.time) | .id')
-	echo "Restore the from the last snapshot"
+	echo "INFO: Restore the from the last snapshot"
 	restore_snapshot
 }
 
@@ -146,10 +146,10 @@ restore_snapshot() {
 	then
 	        set -e
 		# Procedure taken from: https://artifacthub.io/packages/helm/bitnami/valkey
-		echo "Proceeding with the restore of the data from the snapshot: ${SNAPSHOT_ID}"
+		echo "INFO: Proceeding with the restore of the data from the snapshot: ${SNAPSHOT_ID}"
 		echo
 
-		echo "Saving the current valkey yaml manifest applied to the instance"
+		echo "INFO: Saving the current valkey yaml manifest applied to the instance"
 		kubectl apply view-last-applied valkey ${VALKEY_NAME} -n ${VALKEY_NAMESPACE} -o yaml > ${VALKEY_NAME}.yaml
 
 	        # Before valkey is one more time restored, it is necessary to check what is the current configuration of the appendonly
@@ -171,7 +171,7 @@ restore_snapshot() {
                 then
                         # making copy of the original file to add new parameters
 
-                        echo "Creating a copy of the deployment file"
+                        echo "INFO: Creating a copy of the deployment file"
                         cp ${VALKEY_NAME}.yaml ${VALKEY_NAME}-mod.yaml
 
                         # if appendonly is set to yes check if this is set through the commonConfiguration
@@ -179,12 +179,12 @@ restore_snapshot() {
                         then
                                 if grep appendonly ${VALKEY_NAME}.yaml 1>/dev/null;
                                 then
-                                        echo "Found the appendonly definition in the deployment definition"
-                                        echo "Changing the appendonly value to no"
+                                        echo "INFO: Found the appendonly definition in the deployment definition"
+                                        echo "INFO: Changing the appendonly value to no"
                                         sed -i 's/appendonly yes/appendonly no/' ${VALKEY_NAME}-mod.yaml
                                 fi
                         else
-                                echo "No custom configuration found, adding custom configuration with appendonly no"
+                                echo "INFO: No custom configuration found, adding custom configuration with appendonly no"
                                 echo "  commonConfiguration: |-" >> ${VALKEY_NAME}-mod.yaml
                                 echo "    # Enable AOF https://valkey.io/topics/persistence#append-only-file" >> ${VALKEY_NAME}-mod.yaml
                                 echo "    appendonly no" >> ${VALKEY_NAME}-mod.yaml
@@ -196,42 +196,54 @@ restore_snapshot() {
 		fi
 		set -e
 
-		echo "Deleting the instance ${VALKEY_NAME} for the restore"
+		echo "INFO: Deleting the instance ${VALKEY_NAME} for the restore"
 		kubectl delete valkey ${VALKEY_NAME} -n ${VALKEY_NAMESPACE}
 
-		echo "Creating the pod to mount the volume of the node"
-		cat lightweight-tty-pod.yaml | envsubst > restore-${VALKEY_NAME}-volpod.yaml
-		kubectl	apply -f restore-${VALKEY_NAME}-volpod.yaml -n ${VALKEY_NAMESPACE}
+		# Perform the restore
+                echo "INFO: Restoring Valkey backup for pod ${REDIS_NAME} from snapshot ID ${SNAPSHOT_ID}"
+                restic -r "$RESTIC_REPOSITORY" restore "${SNAPSHOT_ID}" --target "/"
 
-		echo "Waiting for the container to be ready"
-		kubectl wait --for=jsonpath='{.status.phase}'=Running pod/restore-${VALKEY_NAME}-volpod -n ${VALKEY_NAMESPACE}
+                if [[ "${DEBUG_IMAGE}" == "true" ]];
+                then
+                        echo "DEBUG: Files local"
+                        ls -l
+                        echo
+                        echo "DEBUG: Files in /tmp"
+                        ls -l /tmp
+                fi
 
-	        # Perform the restore
-	        echo "INFO: Restoring Valkey backup for pod ${REDIS_NAME} from snapshot ID ${SNAPSHOT_ID}"
-	        restic -r "$RESTIC_REPOSITORY" restore "${SNAPSHOT_ID}" --target "/"
-	
- 		if [[ "${DEBUG_IMAGE}" == "true" ]];
-		then
-			echo "Files local"
-			ls -l
-			echo
-			echo "Files in /tmp"
-			ls -l /tmp
-		fi
-					
-	        # Move the restored file to the correct location
-		# taken from https://docs.simplebackups.com/database-backup/f43rJaVYoNkbCGWqr3j9Jb/restore-a-redis-backup/aGGDek7aMmxgNSdEwUpUUi
-		echo "Deleting old data present"
-		kubectl exec restore-${VALKEY_NAME}-volpod -n ${VALKEY_NAMESPACE} --tty=false -- /bin/sh -c "rm -f /mnt/appendonlydir/* /mnt/*.rdb"
+		#
+		# Considering a process that involve all cases, standalone, replica and sentinel
+		# to restore the dump.rdb backed up
+		#
 
-		echo "Copying the restored data to valkey volume"
-	        kubectl cp "/tmp/${VALKEY_NAME}.rdb" restore-${VALKEY_NAME}-volpod:/mnt/dump.rdb -n ${VALKEY_NAMESPACE}
-	        echo "Change the ownership of the restored file"
-		kubectl exec restore-${VALKEY_NAME}-volpod -n ${VALKEY_NAMESPACE} --tty=false -- /bin/sh -c "chown 1001:1001 /mnt/dump.rdb"
+		echo "INFO: Detecting volumes for: ${VALKEY_NAME}"
+		volumes=$(kubectl  get pvc -o jsonpath="{.items[*].metadata.name}" -l app.kubernetes.io/instance=${VALKEY_NAME})
+		for volume in $volumes
+		do
+			export VALKEY_VOLUME_NAME=$volume
+			echo "INFO: Creating the pod to mount the volume of the node"
+			cat lightweight-tty-pod.yaml | envsubst > restore-from-${VALKEY_VOLUME_NAME}.yaml
+			kubectl	apply -f restore-from-${VALKEY_VOLUME_NAME}.yaml -n ${VALKEY_NAMESPACE}
 
-		echo "Deleting the restore pod"
-		kubectl delete pod restore-${VALKEY_NAME}-volpod -n ${VALKEY_NAMESPACE}
+			echo "INFO: Waiting for the container to be ready"
+			kubectl wait --for=jsonpath='{.status.phase}'=Running pod/restore-from-${VALKEY_VOLUME_NAME} -n ${VALKEY_NAMESPACE}
 
+	        	# Move the restored file to the correct location
+			# taken from https://docs.simplebackups.com/database-backup/f43rJaVYoNkbCGWqr3j9Jb/restore-a-redis-backup/aGGDek7aMmxgNSdEwUpUUi
+			echo "INFO: Deleting old data present"
+			kubectl exec restore-from-${VALKEY_VOLUME_NAME} -n ${VALKEY_NAMESPACE} --tty=false -- /bin/sh -c "rm -f /mnt/appendonlydir/* /mnt/*.rdb"
+
+			echo "INFO: Copying the restored data to valkey volume"
+	        	kubectl cp "/tmp/${VALKEY_NAME}.rdb" restore-from-${VALKEY_VOLUME_NAME}:/mnt/dump.rdb -n ${VALKEY_NAMESPACE}
+	        
+			echo "INFO: Change the ownership of the restored file"
+			kubectl exec restore-from-${VALKEY_VOLUME_NAME} -n ${VALKEY_NAMESPACE} --tty=false -- /bin/sh -c "chown 1001:1001 /mnt/dump.rdb"
+
+			echo "INFO: Deleting the restore pod"
+			kubectl delete pod restore-from-${VALKEY_VOLUME_NAME} -n ${VALKEY_NAMESPACE}
+
+		done
 		# Before valkey is one more time restored, it is necessary to check what is the current configuration of the appendonly
 		# If the appendonly parameter is set to no, then it can be just run the normal deployment saved.
 		# if the appendonly is set to yes there are to ways to verify that:
@@ -248,34 +260,34 @@ restore_snapshot() {
 		# In other words if the appendonly is NOT set to no
 		if (( $aof_found == 1 ));
 		then
-			echo "After modification deploy the instance with appendonly no"
+			echo "INFO: After modification deploy the instance with appendonly no"
 			kubectl apply -f ${VALKEY_NAME}-mod.yaml -n ${VALKEY_NAMESPACE}
 
-			echo "Sleep for 10 secs"
+			echo "INFO: Sleep for 10 secs"
                         sleep 10
 
-			echo "Waiting for the container to be ready"
+			echo "INFO: Waiting for the container to be ready"
 			kubectl wait --for=condition=ContainersReady pods -n ${VALKEY_NAMESPACE} -l app.kubernetes.io/instance=${VALKEY_NAME}
 
-			echo "Sleep for 10 secs"
+			echo "INFO: Sleep for 10 secs"
 			sleep 10
 
-			echo "Detecting the new master node due to the redeployment changed the CLUSTER_IP"
+			echo "INFO: Detecting the new master node due to the redeployment changed the CLUSTER_IP"
 			discover_master
 
-			echo "Activate the appendonly to yes to reconstruct the aof files"
+			echo "INFO: Activate the appendonly to yes to reconstruct the aof files"
 			redis-cli -h ${VALKEY_MASTER} -p ${VALKEY_PORT} $opts config set appendonly yes
 			#redis-cli -h ${VALKEY_MASTER} -p ${VALKEY_PORT} $opts config rewrite
 
-			echo "Sleep for 10 secs"
+			echo "INFO: Sleep for 10 secs"
 			sleep 10
 		fi
                 set -e
 
-		echo "Restoring the valkey instance ${VALKEY_NAME} with the original configuration"
+		echo "INFO: Restoring the valkey instance ${VALKEY_NAME} with the original configuration"
 		kubectl apply -f ${VALKEY_NAME}.yaml -n ${VALKEY_NAMESPACE}
 	
-	        echo "Restore completed successfully for instance ${VALKEY_NAME}"
+	        echo "INFO: Restore completed successfully for instance ${VALKEY_NAME}"
 	        set +e
 	fi
 
