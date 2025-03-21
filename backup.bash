@@ -202,7 +202,7 @@ restore_snapshot() {
 		set +e
 		# Checking if it is configured valkey with appendonly yes
 		# In other words if the appendonly is NOT set to no
-		if ! redis-cli -h ${VALKEY_MASTER} -p ${VALKEY_PORT} $opts config get appendonly | tail -n 1 | grep no 1 > /dev/null;
+		if ! redis-cli -h ${VALKEY_MASTER} -p ${VALKEY_PORT} $opts config get appendonly | tail -n 1 | grep no 1>/dev/null;
 		then
 			# making copy of the original file to add new parameters
 
