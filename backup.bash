@@ -237,6 +237,7 @@ restore_snapshot() {
 
 			echo "Activate the appendonly to yes to reconstruct the aof files"
 			redis-cli -h ${VALKEY_MASTER} -p ${VALKEY_PORT} $opts config set appendonly yes
+			redis-cli -h ${VALKEY_MASTER} -p ${VALKEY_PORT} $opts config rewrite
 
 			echo "Sleep for 10 secs"
 			sleep 10
