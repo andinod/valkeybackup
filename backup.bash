@@ -286,6 +286,13 @@ restore_snapshot() {
 
 		echo "INFO: Restoring the valkey instance ${VALKEY_NAME} with the original configuration"
 		kubectl apply -f ${VALKEY_NAME}.yaml -n ${VALKEY_NAMESPACE}
+
+		echo "INFO: Sleep for 10 secs"
+                sleep 10
+
+                echo "INFO: Waiting for the container to be ready"
+                kubectl wait --for=condition=ContainersReady pods -n ${VALKEY_NAMESPACE} -l app.kubernetes.io/instance=${VALKEY_NAME}
+
 	
 	        echo "INFO: Restore completed successfully for instance ${VALKEY_NAME}"
 	        set +e
